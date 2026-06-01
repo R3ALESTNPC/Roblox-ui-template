@@ -1,22 +1,25 @@
 -- =============================================================================
--- PROGRESSION CONTROL PANEL (Change these numbers as you get richer!)
+-- AUTOMATION DASHBOARD CONFIGURATION
 -- =============================================================================
 local Config = {
     AutoRoll = false,
-    AutoBuy = false, 
+    AutoBuySeeds = false, 
+    AutoBuyGears = false,
     AutoSell = false,
     AutoShoot = false,
     AutoFertilize = false,
+    AutoCollect = false, -- Brand new magnetic pickup toggle
     
-    TargetSeedSlot = 6,          -- Set 1 to 6 depending on what slot you can afford!
-    TargetSprayName = "Acid Spray" -- Change this text to "Rainbow Spray", "Void Spray", etc.
+    TargetSeedSlot = 6,          
+    TargetSprayName = "Acid Spray" 
 }
 
 -- =============================================================================
--- SERVICES & REMOTE TRACKING
+-- ENGINE INITIALIZATION
 -- =============================================================================
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 
@@ -34,7 +37,7 @@ if playerGui:FindFirstChild("DevControlPanel") then
 end
 
 -- =============================================================================
--- USER INTERFACE LAYER
+-- USER INTERFACE CONSTRUCTION
 -- =============================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "DevControlPanel"
@@ -42,7 +45,7 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 240, 0, 230)
+mainFrame.Size = UDim2.new(0, 240, 0, 275) -- Adjusted for the new layout button
 mainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderSizePixel = 0
@@ -64,12 +67,12 @@ uiListLayout.Parent = mainFrame
 
 local function createToggleButton(labelName, configKey)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, 0, 0, 40)
+    button.Size = UDim2.new(1, 0, 0, 35)
     button.Text = labelName .. ": OFF"
     button.BackgroundColor3 = Color3.fromRGB(180, 55, 55)
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
     button.Font = Enum.Font.SourceSansBold
-    button.TextSize = 15
+    button.TextSize = 14
     button.Parent = mainFrame
 
     button.MouseButton1Click:Connect(function()
@@ -84,25 +87,35 @@ local function createToggleButton(labelName, configKey)
     end)
 end
 
-createToggleButton("Force Buy & Roll", "AutoRoll")
-createToggleButton("Force Buy Selected Spray", "AutoBuy")
-createToggleButton("Auto Sell Crates", "AutoSell")
+createToggleButton("Auto Buy Seeds Slot", "AutoBuySeeds")
+createToggleButton("Auto Roll Active Seeds", "AutoRoll")
+createToggleButton("Auto Buy Selected Gear", "AutoBuyGears")
+createToggleButton("Auto Pick Up Coins", "AutoCollect") -- New Button Linked!
 createToggleButton("Auto Shoot / Sweeper", "AutoShoot")
-createToggleButton("Brute-Force Fertilize All", "AutoFertilize")
+createToggleButton("Auto Carpet Fertilize", "AutoFertilize")
+createToggleButton("Auto Sell Crates", "AutoSell")
 
 -- =============================================================================
--- EXECUTOR BACKGROUND LOOPS
+-- SYSTEM EXECUTION CORE LOOPS
 -- =============================================================================
 
--- Loop 1: Direct Seed Purchase & Roll Engine
+-- Loop 1: Core Seed Merchant Pipeline
 task.spawn(function()
     while true do
-        task.wait(0.4)
-        if Config.AutoRoll and buySeedRemote and rollRemote then
+        task.wait(0.5)
+        if Config.AutoBuySeeds and buySeedRemote then
             pcall(function()
                 buySeedRemote:FireServer(unpack({[1] = Config.TargetSeedSlot}))
             end)
-            task.wait(0.1)
+        end
+    end
+end)
+
+-- Loop 2: Seed Rolling Standalone Pipeline
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        if Config.AutoRoll and rollRemote then
             pcall(function()
                 rollRemote:FireServer()
             end)
@@ -110,11 +123,11 @@ task.spawn(function()
     end
 end)
 
--- Loop 2: Direct Shop Purchase Engine
+-- Loop 3: Gear Upgrade Transaction Pipeline
 task.spawn(function()
     while true do
-        task.wait(2.0) -- Paced shop transaction speed
-        if Config.AutoBuy and gearTransaction then
+        task.wait(1.5)
+        if Config.AutoBuyGears and gearTransaction then
             pcall(function()
                 gearTransaction:InvokeServer(unpack({[1] = Config.TargetSprayName}))
             end)
@@ -122,34 +135,46 @@ task.spawn(function()
     end
 end)
 
--- Loop 3: Auto Crate Liquidator
+-- Loop 4: Coin Vacuum & Magnetic Collection Engine
 task.spawn(function()
     while true do
-        task.wait(1.0)
-        if Config.AutoSell and sellRemote then
-            pcall(function()
-                sellRemote:FireServer()
-            end)
+        task.wait(0.1) -- High-speed pickup scan
+        if Config.AutoCollect then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            
+            if root then
+                -- Scans game workspace for dropped coins, items, or reward boxes
+                for _, object in ipairs(Workspace:GetChildren()) do
+                    if object:IsA("Part") or object:IsA("MeshPart") then
+                        -- Target models matching coin naming structures or holding coin properties
+                        if string.find(string.lower(object.Name), "coin") or string.find(string.lower(object.Name), "drop") then
+                            pcall(function()
+                                -- Snaps the coin coordinates directly onto your character model
+                                object.CFrame = root.CFrame
+                            end)
+                        end
+                    end
+                end
+            end
         end
     end
 end)
 
--- Loop 4: Character-Centered Area Sweeper (Auto Shoot)
+-- Loop 5: Weapon Handling & Progressive Sweeper Line
 task.spawn(function()
     while true do
-        task.wait(0.1) -- Rapid fire execution rate
+        task.wait(0.1)
         if Config.AutoShoot and shootRemote then
-            -- Safely secure character location coordinates
             local character = localPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
             
             if rootPart then
-                -- Dynamically builds 3D coordinates relative to your character's real-time position
                 local playerPos = rootPart.Position
                 local forwardVector = rootPart.CFrame.LookVector
                 
                 local blastArgs = {
-                    [1] = playerPos + (forwardVector * 10), -- Focuses fire 10 units forward
+                    [1] = playerPos + (forwardVector * 12), 
                     [2] = forwardVector,
                     [3] = playerPos
                 }
@@ -157,32 +182,27 @@ task.spawn(function()
                 if equipToolRemote then
                     pcall(function() equipToolRemote:FireServer() end)
                 end
-                
-                pcall(function()
-                    shootRemote:FireServer(unpack(blastArgs))
-                end)
+                pcall(function() shootRemote:FireServer(unpack(blastArgs)) end)
             end
         end
     end
 end)
 
--- Loop 5: Brute-Force Carpet Fertilizer Engine
+-- Loop 6: Total Carpet Fertilize Map Sweep
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.6)
         if Config.AutoFertilize and useFertilizerRemote then
-            local mapFolder = workspace:FindFirstChild("Map")
+            local mapFolder = Workspace:FindFirstChild("Map")
             local plotsFolder = mapFolder and mapFolder:FindFirstChild("Plots")
             
             if plotsFolder then
-                -- Blank scan over every single structural plot folder on the map layout
                 for _, plotParent in ipairs(plotsFolder:GetChildren()) do
                     local farmPlot = plotParent:FindFirstChild("FarmPlot")
                     if farmPlot then
                         for _, individualPlot in ipairs(farmPlot:GetChildren()) do
                             local dirtNode = individualPlot:FindFirstChild("Dirt")
                             if dirtNode then
-                                -- Bypasses item scanning entirely and targets the dirt coordinate node directly
                                 pcall(function()
                                     useFertilizerRemote:FireServer(unpack({[1] = dirtNode}))
                                 end)
@@ -191,6 +211,16 @@ task.spawn(function()
                     end
                 end
             end
+        end
+    end
+end)
+
+-- Loop 7: Auto Liquidation Crate Processing
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if Config.AutoSell and sellRemote then
+            pcall(function() sellRemote:FireServer() end)
         end
     end
 end)
