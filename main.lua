@@ -3,9 +3,19 @@
 -- =============================================================================
 local Config = {
     AutoRoll = false,
-    AutoBuy = false, -- Controls the progressive spray buyer
+    AutoBuy = false, 
     AutoSell = false,
-    MaxSeedTier = 6  -- Loop starts trying here [1-6] and drops down if unaffordable
+    MaxSeedTier = 6  
+}
+
+-- Calibrated entry costs based on your crop tiers data
+local SeedPrices = {
+    [1] = 100,       -- Tier 1: Common Seeds (Carrot base)
+    [2] = 600,       -- Tier 2: Uncommon Seeds (Wheat base)
+    [3] = 15000,     -- Tier 3: Rare Seeds (Blueberry base)
+    [4] = 200000,    -- Tier 4: Epic Seeds (Corn base)
+    [5] = 2500000,   -- Tier 5: Legendary Seeds (Spring Onion base)
+    [6] = 30000000   -- Tier 6: Secret/Late-game Seeds (Strawberry base)
 }
 
 -- Price spreadsheet for the gear transaction system
@@ -27,20 +37,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 
--- Verify the existence of your discovered remotes
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local buySeedRemote = remotesFolder:WaitForChild("BuySeed")
 local rollRemote = remotesFolder:WaitForChild("RollSeeds")
 local sellRemote = remotesFolder:WaitForChild("SellCrates")
 local gearTransaction = remotesFolder:WaitForChild("Gear"):WaitForChild("Transaction")
 
--- Wipe old interface versions to clear screen real estate
 if playerGui:FindFirstChild("DevControlPanel") then
     playerGui.DevControlPanel:Destroy()
 end
 
 -- =============================================================================
--- USER INTERFACE LAYER (Visual Build)
+-- USER INTERFACE LAYER
 -- =============================================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "DevControlPanel"
@@ -66,7 +74,6 @@ uiListLayout.Padding = UDim.new(0, 6)
 uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 uiListLayout.Parent = mainFrame
 
--- Factory function to link buttons directly to configuration keys
 local function createToggleButton(labelName, configKey)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(1, 0, 0, 45)
@@ -89,7 +96,6 @@ local function createToggleButton(labelName, configKey)
     end)
 end
 
--- UI generation calls
 createToggleButton("Smart Auto-Buy & Roll", "AutoRoll")
 createToggleButton("Smart Progressive Shop", "AutoBuy")
 createToggleButton("Auto Sell Crates", "AutoSell")
@@ -98,33 +104,36 @@ createToggleButton("Auto Sell Crates", "AutoSell")
 -- LIVE GAME-INTEGRATION BACKGROUND THREADS
 -- =============================================================================
 
--- Thread 1: Dynamic Seed Buyer (Cascades down through tiers until purchase succeeds)
+-- Thread 1: Math-Based Seed Buyer (Instantly reads wallet and picks the correct affordable slot)
 task.spawn(function()
     while true do
-        task.wait(0.4) -- Keeps network traffic highly stable
+        task.wait(0.4) 
         
         if Config.AutoRoll and buySeedRemote and rollRemote then
             local leaderstats = localPlayer:FindFirstChild("leaderstats")
             local cashField = leaderstats and leaderstats:FindFirstChild("Cash")
             
             if cashField then
-                -- Step down from MaxSeedTier down to 1 until you find what you can afford
+                local currentCash = cashField.Value
+                local slotToBuy = nil
+                
+                -- Count downwards from MaxSeedTier to find the highest affordable slot
                 for tier = Config.MaxSeedTier, 1, -1 do
-                    local initialCash = cashField.Value
-                    
-                    -- Attempt the server handshake
+                    local price = SeedPrices[tier]
+                    if price and currentCash >= price then
+                        slotToBuy = tier
+                        break -- Found the highest affordable seed tier!
+                    end
+                end
+                
+                -- If we found an affordable seed, execute the buy and roll sequence
+                if slotToBuy then
                     pcall(function()
-                        buySeedRemote:FireServer(unpack({[1] = tier}))
+                        buySeedRemote:FireServer(unpack({[1] = slotToBuy}))
                     end)
                     
-                    -- Micro pause for the server to process the transaction and reduce cash
-                    task.wait(0.05)
-                    
-                    -- If cash went down, it means the purchase was successful!
-                    if cashField.Value < initialCash then
-                        rollRemote:FireServer() -- Roll the newly acquired seed
-                        break -- Exit the step-down scan early since we successfully bought a seed
-                    end
+                    task.wait(0.1) -- Small structural lag buffer
+                    rollRemote:FireServer()
                 end
             end
         end
@@ -134,24 +143,20 @@ end)
 -- Thread 2: Smart Progressive Shop (Only buys sprays you can afford)
 task.spawn(function()
     while true do
-        task.wait(2.0) -- Checks every 2 seconds to optimize performance
-        
+        task.wait(2.0) 
         if Config.AutoBuy and gearTransaction then
             local leaderstats = localPlayer:FindFirstChild("leaderstats")
             local cashField = leaderstats and leaderstats:FindFirstChild("Cash")
             
             if cashField then
                 local currentCash = cashField.Value
-                
                 for _, spray in ipairs(SprayPrices) do
                     if currentCash >= spray.Price then
                         local targetItem = { [1] = spray.Name }
-                        
                         pcall(function()
                             gearTransaction:InvokeServer(unpack(targetItem))
                         end)
-                        
-                        break -- Skip cheaper sprays once the best one is acquired
+                        break -- Skip cheaper options once the best spray is bought
                     end
                 end
             end
@@ -159,12 +164,12 @@ task.spawn(function()
     end
 end)
 
--- Thread 3: Executes your SellCrates FireServer string
+-- Thread 3: Auto Sell Crates
 task.spawn(function()
     while true do
         task.wait(1.0)
         if Config.AutoSell and sellRemote then
-            sellRemote:Server()
+            sellRemote:FireServer()
         end
     end
 end)
