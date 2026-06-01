@@ -1,10 +1,22 @@
 -- =============================================================================
--- CENTRAL CONFIGURATION SYSTEM
+-- CENTRAL CONFIGURATION SYSTEM & PRICE DATA
 -- =============================================================================
 local Config = {
     AutoRoll = false,
-    AutoBuy = false,
-    AutoSell = false
+    AutoBuy = false, -- Controls the progressive spray buyer
+    AutoSell = false,
+    MaxSeedTier = 6
+}
+
+-- Price spreadsheet built directly from your Gear Shop documentation
+local SprayPrices = {
+    {Name = "Rainbow Spray",      Price = 1000000000000}, -- $1T
+    {Name = "Radioactive Spray",  Price = 10000000000},    -- $10B
+    {Name = "Void Spray",         Price = 1000000000},     -- $1B
+    {Name = "Autumn Spray",       Price = 1000000000},     -- $1B
+    {Name = "Frozen Spray",       Price = 750000000},      -- $750M
+    {Name = "Wet Spray",          Price = 10000000},       -- $10M
+    {Name = "Acid Spray",         Price = 1000000}         -- $1M
 }
 
 -- =============================================================================
@@ -15,7 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 
--- Safely verify the existence of all your discovered remotes
+-- Verify the existence of your discovered remotes
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 local buySeedRemote = remotesFolder:WaitForChild("BuySeed")
 local rollRemote = remotesFolder:WaitForChild("RollSeeds")
@@ -78,47 +90,56 @@ local function createToggleButton(labelName, configKey)
 end
 
 -- UI generation calls
-createToggleButton("Auto Buy & Roll", "AutoRoll")
-createToggleButton("Auto Buy Rainbow Spray", "AutoBuy")
+createToggleButton("Auto Buy & Roll (All)", "AutoRoll")
+createToggleButton("Smart Progressive Shop", "AutoBuy")
 createToggleButton("Auto Sell Crates", "AutoSell")
 
 -- =============================================================================
 -- LIVE GAME-INTEGRATION BACKGROUND THREADS
 -- =============================================================================
 
--- Thread 1: Combines BuySeed and RollSeeds into a fluid loop
+-- Thread 1: Smart Cycle through all unlocked Seed Tiers
 task.spawn(function()
     while true do
-        task.wait(0.4) -- Balanced yield time to allow both actions to register safely
-        if Config.AutoRoll then
-            -- Step A: Buy the seed using your exact argument layout
-            if buySeedRemote then
-                local seedArgs = { [1] = 1 }
-                buySeedRemote:FireServer(unpack(seedArgs))
-            end
-            
-            -- Small micro-pause to let the server process the seed purchase
+        task.wait(0.4)
+        if Config.AutoRoll and buySeedRemote and rollRemote then
+            local currentTarget = Config.MaxSeedTier
+            pcall(function()
+                buySeedRemote:FireServer(unpack({[1] = currentTarget}))
+            end)
             task.wait(0.1)
-            
-            -- Step B: Roll the seed
-            if rollRemote then
-                rollRemote:FireServer()
-            end
+            rollRemote:FireServer()
         end
     end
 end)
 
--- Thread 2: Executes your Gear Transaction InvokeServer string
+-- Thread 2: Smart Progressive Shop (Only buys what you can afford)
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Kept slower to avoid triggering anti-spam shop limits
+        task.wait(2.0) -- Check balances every 2 seconds to keep it performance friendly
+        
         if Config.AutoBuy and gearTransaction then
-            local targetItem = { [1] = "Rainbow Spray" } 
+            local leaderstats = localPlayer:FindFirstChild("leaderstats")
+            local cashField = leaderstats and leaderstats:FindFirstChild("Cash")
             
-            -- Safeguarded remote invoke
-            pcall(function()
-                gearTransaction:InvokeServer(unpack(targetItem))
-            end)
+            if cashField then
+                local currentCash = cashField.Value
+                
+                -- Loop through our table from most expensive down to cheapest
+                for _, spray in ipairs(SprayPrices) do
+                    if currentCash >= spray.Price then
+                        -- You can afford this spray! Send purchase signal.
+                        local targetItem = { [1] = spray.Name }
+                        
+                        pcall(function()
+                            gearTransaction:InvokeServer(unpack(targetItem))
+                        end)
+                        
+                        -- Break the loop immediately so it doesn't waste money buying lesser sprays
+                        break 
+                    end
+                end
+            end
         end
     end
 end)
@@ -126,7 +147,7 @@ end)
 -- Thread 3: Executes your SellCrates FireServer string
 task.spawn(function()
     while true do
-        task.wait(1.0) -- Automatically unloads crates once every second
+        task.wait(1.0)
         if Config.AutoSell and sellRemote then
             sellRemote:FireServer()
         end
