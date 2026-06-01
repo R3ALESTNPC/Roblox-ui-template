@@ -5,10 +5,10 @@ local Config = {
     AutoRoll = false,
     AutoBuy = false, -- Controls the progressive spray buyer
     AutoSell = false,
-    MaxSeedTier = 6
+    MaxSeedTier = 6  -- Loop starts trying here [1-6] and drops down if unaffordable
 }
 
--- Price spreadsheet built directly from your Gear Shop documentation
+-- Price spreadsheet for the gear transaction system
 local SprayPrices = {
     {Name = "Rainbow Spray",      Price = 1000000000000}, -- $1T
     {Name = "Radioactive Spray",  Price = 10000000000},    -- $10B
@@ -90,7 +90,7 @@ local function createToggleButton(labelName, configKey)
 end
 
 -- UI generation calls
-createToggleButton("Auto Buy & Roll (All)", "AutoRoll")
+createToggleButton("Smart Auto-Buy & Roll", "AutoRoll")
 createToggleButton("Smart Progressive Shop", "AutoBuy")
 createToggleButton("Auto Sell Crates", "AutoSell")
 
@@ -98,25 +98,43 @@ createToggleButton("Auto Sell Crates", "AutoSell")
 -- LIVE GAME-INTEGRATION BACKGROUND THREADS
 -- =============================================================================
 
--- Thread 1: Smart Cycle through all unlocked Seed Tiers
+-- Thread 1: Dynamic Seed Buyer (Cascades down through tiers until purchase succeeds)
 task.spawn(function()
     while true do
-        task.wait(0.4)
+        task.wait(0.4) -- Keeps network traffic highly stable
+        
         if Config.AutoRoll and buySeedRemote and rollRemote then
-            local currentTarget = Config.MaxSeedTier
-            pcall(function()
-                buySeedRemote:FireServer(unpack({[1] = currentTarget}))
-            end)
-            task.wait(0.1)
-            rollRemote:FireServer()
+            local leaderstats = localPlayer:FindFirstChild("leaderstats")
+            local cashField = leaderstats and leaderstats:FindFirstChild("Cash")
+            
+            if cashField then
+                -- Step down from MaxSeedTier down to 1 until you find what you can afford
+                for tier = Config.MaxSeedTier, 1, -1 do
+                    local initialCash = cashField.Value
+                    
+                    -- Attempt the server handshake
+                    pcall(function()
+                        buySeedRemote:FireServer(unpack({[1] = tier}))
+                    end)
+                    
+                    -- Micro pause for the server to process the transaction and reduce cash
+                    task.wait(0.05)
+                    
+                    -- If cash went down, it means the purchase was successful!
+                    if cashField.Value < initialCash then
+                        rollRemote:FireServer() -- Roll the newly acquired seed
+                        break -- Exit the step-down scan early since we successfully bought a seed
+                    end
+                end
+            end
         end
     end
 end)
 
--- Thread 2: Smart Progressive Shop (Only buys what you can afford)
+-- Thread 2: Smart Progressive Shop (Only buys sprays you can afford)
 task.spawn(function()
     while true do
-        task.wait(2.0) -- Check balances every 2 seconds to keep it performance friendly
+        task.wait(2.0) -- Checks every 2 seconds to optimize performance
         
         if Config.AutoBuy and gearTransaction then
             local leaderstats = localPlayer:FindFirstChild("leaderstats")
@@ -125,18 +143,15 @@ task.spawn(function()
             if cashField then
                 local currentCash = cashField.Value
                 
-                -- Loop through our table from most expensive down to cheapest
                 for _, spray in ipairs(SprayPrices) do
                     if currentCash >= spray.Price then
-                        -- You can afford this spray! Send purchase signal.
                         local targetItem = { [1] = spray.Name }
                         
                         pcall(function()
                             gearTransaction:InvokeServer(unpack(targetItem))
                         end)
                         
-                        -- Break the loop immediately so it doesn't waste money buying lesser sprays
-                        break 
+                        break -- Skip cheaper sprays once the best one is acquired
                     end
                 end
             end
@@ -149,7 +164,7 @@ task.spawn(function()
     while true do
         task.wait(1.0)
         if Config.AutoSell and sellRemote then
-            sellRemote:FireServer()
+            sellRemote:Server()
         end
     end
 end)
