@@ -2,19 +2,21 @@
 -- AUTOMATION DASHBOARD CONFIGURATION
 -- =============================================================================
 local Config = {
-    AutoRollAndBuy = false, -- Combined system toggle to fix the seed conflict
+    AutoRollAndBuy = false, 
     AutoBuyGears = false,
     AutoSell = false,
     AutoShoot = false,
     AutoFertilize = false,
     AutoCollect = false, 
     
-    TargetSeedSlot = 6,          
-    TargetSprayName = "Acid Spray" 
+    TargetSprayName = "Acid Spray" -- Controlled via new UI Dropdown
 }
 
--- Fallback safety tiers for the gear shop
-local SpraySequence = {"Rainbow Spray", "Radioactive Spray", "Void Spray", "Autumn Spray", "Frozen Spray", "Wet Spray", "Acid Spray"}
+-- Complete shop listing for the gear selector dropdown
+local SpraySequence = {
+    "Acid Spray", "Wet Spray", "Frozen Spray", "Autumn Spray", 
+    "Void Spray", "Radioactive Spray", "Rainbow Spray"
+}
 
 -- =============================================================================
 -- ENGINE INITIALIZATION
@@ -47,7 +49,7 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 240, 0, 240) 
+mainFrame.Size = UDim2.new(0, 240, 0, 290) 
 mainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderSizePixel = 0
@@ -69,7 +71,7 @@ uiListLayout.Parent = mainFrame
 
 local function createToggleButton(labelName, configKey)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, 0, 0, 35)
+    button.Size = UDim2.new(1, 0, 0, 32)
     button.Text = labelName .. ": OFF"
     button.BackgroundColor3 = Color3.fromRGB(180, 55, 55)
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -89,27 +91,80 @@ local function createToggleButton(labelName, configKey)
     end)
 end
 
-createToggleButton("Auto Buy & Roll Seeds", "AutoRollAndBuy")
+createToggleButton("Auto Buy All Tiers & Roll", "AutoRollAndBuy")
 createToggleButton("Auto Buy Selected Gear", "AutoBuyGears")
+
+-- Gear Shop Dropdown Selector Menu
+local shopDropdownToggle = Instance.new("TextButton")
+shopDropdownToggle.Size = UDim2.new(1, 0, 0, 32)
+shopDropdownToggle.Text = "Shop Target: " .. Config.TargetSprayName
+shopDropdownToggle.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+shopDropdownToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+shopDropdownToggle.Font = Enum.Font.SourceSansBold
+shopDropdownToggle.TextSize = 13
+shopDropdownToggle.Parent = mainFrame
+
+local shopDropdownMenu = Instance.new("ScrollingFrame")
+shopDropdownMenu.Size = UDim2.new(1, 0, 0, 120)
+shopDropdownMenu.Position = UDim2.new(0, 0, 1, 2)
+shopDropdownMenu.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+shopDropdownMenu.Visible = false
+shopDropdownMenu.ZIndex = 10
+shopDropdownMenu.CanvasSize = UDim2.new(0, 0, 0, #SpraySequence * 26)
+shopDropdownMenu.ScrollBarThickness = 4
+shopDropdownMenu.Parent = shopDropdownToggle
+
+local shopDropdownLayout = Instance.new("UIListLayout")
+shopDropdownLayout.SortOrder = Enum.SortOrder.LayoutOrder
+shopDropdownLayout.Parent = shopDropdownMenu
+
+for _, sprayName in ipairs(SpraySequence) do
+    local itemButton = Instance.new("TextButton")
+    itemButton.Size = UDim2.new(1, 0, 0, 25)
+    itemButton.Text = "  " .. sprayName
+    itemButton.TextXAlignment = Enum.TextXAlignment.Left
+    itemButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    itemButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+    itemButton.Font = Enum.Font.SourceSans
+    itemButton.TextSize = 13
+    itemButton.ZIndex = 11
+    itemButton.Parent = shopDropdownMenu
+
+    itemButton.MouseButton1Click:Connect(function()
+        Config.TargetSprayName = sprayName
+        shopDropdownToggle.Text = "Shop Target: " .. sprayName
+        shopDropdownMenu.Visible = false
+    end)
+end
+
+shopDropdownToggle.MouseButton1Click:Connect(function()
+    shopDropdownMenu.Visible = not shopDropdownMenu.Visible
+end)
+
 createToggleButton("Auto Pick Up Drops", "AutoCollect") 
 createToggleButton("Auto Shoot / Sweeper", "AutoShoot")
-createToggleButton("Paced Carpet Fertilize", "AutoFertilize")
+createToggleButton("Smart Carpet Fertilize", "AutoFertilize")
 createToggleButton("Auto Sell Crates", "AutoSell")
 
 -- =============================================================================
 -- SYSTEM EXECUTION CORE LOOPS
 -- =============================================================================
 
--- Thread 1: Synchronized Seed Pipeline (Guarantees timing gaps between buying and rolling)
+-- Thread 1: Progressive Multi-Tier Seed Buyer Pipeline
 task.spawn(function()
     while true do
-        task.wait(0.6) -- Paced delay block
+        task.wait(0.5)
         if Config.AutoRollAndBuy and buySeedRemote and rollRemote then
-            pcall(function()
-                buySeedRemote:FireServer(unpack({[1] = Config.TargetSeedSlot}))
-            end)
+            -- Dynamically loops from tier 1 to tier 6 to ensure your entire inventory builds evenly
+            for tier = 1, 6 do
+                if not Config.AutoRollAndBuy then break end
+                pcall(function()
+                    buySeedRemote:FireServer(tier)
+                end)
+                task.wait(0.1) -- Paced delay between tier purchases
+            end
             
-            task.wait(0.25) -- Strict processing yield window for the server handshake
+            task.wait(0.3) -- Processing window for the server database
             
             pcall(function()
                 rollRemote:FireServer()
@@ -118,22 +173,14 @@ task.spawn(function()
     end
 end)
 
--- Thread 2: Smart Gear Upgrade Engine
+-- Thread 2: Laser-Targeted Gear Upgrade Engine
 task.spawn(function()
     while true do
-        task.wait(2.5) -- High safety latency gap
-        if Config.AutoBuyGears and gearTransaction then
-            -- First attempts your specific choice
+        task.wait(3.0) -- High safety latency gap to prevent anti-cheat triggers
+        if Config.AutoBuyGears and gearTransaction and Config.TargetSprayName then
             pcall(function()
-                gearTransaction:InvokeServer(unpack({[1] = Config.TargetSprayName}))
+                gearTransaction:InvokeServer(Config.TargetSprayName)
             end)
-            
-            -- Cycles downward as an emergency backup if purchase condition fails
-            for _, sprayName in ipairs(SpraySequence) do
-                pcall(function()
-                    gearTransaction:InvokeServer(unpack({[1] = sprayName}))
-                end)
-            end
         end
     end
 end)
@@ -152,9 +199,7 @@ task.spawn(function()
                         local nameLower = string.lower(object.Name)
                         if string.find(nameLower, "coin") or string.find(nameLower, "drop") or string.find(nameLower, "heart") then
                             pcall(function()
-                                -- Snaps location directly to character coordinates
                                 object.CFrame = root.CFrame
-                                -- Simulates direct hit connection via cross-property contact logic
                                 firetouchinterest(root, object, 0)
                                 task.wait()
                                 firetouchinterest(root, object, 1)
@@ -194,10 +239,11 @@ task.spawn(function()
     end
 end)
 
--- Thread 5: Anti-Spam Protected Carpet Fertilizer Engine
+-- Thread 5: Sequential Paced Carpet Fertilizer Engine (Stops "Too Fast" errors)
 task.spawn(function()
     while true do
-        task.wait(1.8) -- Safe cooldown structure to completely bypass "Using Gears Too Fast" checks
+        task.wait(1.0) -- Wait between complete field passes
+        
         if Config.AutoFertilize and useFertilizerRemote then
             local mapFolder = Workspace:FindFirstChild("Map")
             local plotsFolder = mapFolder and mapFolder:FindFirstChild("Plots")
@@ -207,11 +253,16 @@ task.spawn(function()
                     local farmPlot = plotParent:FindFirstChild("FarmPlot")
                     if farmPlot then
                         for _, individualPlot in ipairs(farmPlot:GetChildren()) do
+                            -- Emergency stop check mid-loop
+                            if not Config.AutoFertilize then break end
+                            
                             local dirtNode = individualPlot:FindFirstChild("Dirt")
                             if dirtNode then
                                 pcall(function()
-                                    useFertilizerRemote:FireServer(unpack({[1] = dirtNode}))
+                                    useFertilizerRemote:FireServer(dirtNode)
                                 end)
+                                -- Deliberate micro-pause between plots so they don't hit the server at once
+                                task.wait(0.06) 
                             end
                         end
                     end
