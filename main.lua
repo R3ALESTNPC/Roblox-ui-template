@@ -2,17 +2,19 @@
 -- AUTOMATION DASHBOARD CONFIGURATION
 -- =============================================================================
 local Config = {
-    AutoRoll = false,
-    AutoBuySeeds = false, 
+    AutoRollAndBuy = false, -- Combined system toggle to fix the seed conflict
     AutoBuyGears = false,
     AutoSell = false,
     AutoShoot = false,
     AutoFertilize = false,
-    AutoCollect = false, -- Brand new magnetic pickup toggle
+    AutoCollect = false, 
     
     TargetSeedSlot = 6,          
     TargetSprayName = "Acid Spray" 
 }
+
+-- Fallback safety tiers for the gear shop
+local SpraySequence = {"Rainbow Spray", "Radioactive Spray", "Void Spray", "Autumn Spray", "Frozen Spray", "Wet Spray", "Acid Spray"}
 
 -- =============================================================================
 -- ENGINE INITIALIZATION
@@ -45,7 +47,7 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 240, 0, 275) -- Adjusted for the new layout button
+mainFrame.Size = UDim2.new(0, 240, 0, 240) 
 mainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.BorderSizePixel = 0
@@ -87,35 +89,28 @@ local function createToggleButton(labelName, configKey)
     end)
 end
 
-createToggleButton("Auto Buy Seeds Slot", "AutoBuySeeds")
-createToggleButton("Auto Roll Active Seeds", "AutoRoll")
+createToggleButton("Auto Buy & Roll Seeds", "AutoRollAndBuy")
 createToggleButton("Auto Buy Selected Gear", "AutoBuyGears")
-createToggleButton("Auto Pick Up Coins", "AutoCollect") -- New Button Linked!
+createToggleButton("Auto Pick Up Drops", "AutoCollect") 
 createToggleButton("Auto Shoot / Sweeper", "AutoShoot")
-createToggleButton("Auto Carpet Fertilize", "AutoFertilize")
+createToggleButton("Paced Carpet Fertilize", "AutoFertilize")
 createToggleButton("Auto Sell Crates", "AutoSell")
 
 -- =============================================================================
 -- SYSTEM EXECUTION CORE LOOPS
 -- =============================================================================
 
--- Loop 1: Core Seed Merchant Pipeline
+-- Thread 1: Synchronized Seed Pipeline (Guarantees timing gaps between buying and rolling)
 task.spawn(function()
     while true do
-        task.wait(0.5)
-        if Config.AutoBuySeeds and buySeedRemote then
+        task.wait(0.6) -- Paced delay block
+        if Config.AutoRollAndBuy and buySeedRemote and rollRemote then
             pcall(function()
                 buySeedRemote:FireServer(unpack({[1] = Config.TargetSeedSlot}))
             end)
-        end
-    end
-end)
-
--- Loop 2: Seed Rolling Standalone Pipeline
-task.spawn(function()
-    while true do
-        task.wait(0.3)
-        if Config.AutoRoll and rollRemote then
+            
+            task.wait(0.25) -- Strict processing yield window for the server handshake
+            
             pcall(function()
                 rollRemote:FireServer()
             end)
@@ -123,35 +118,46 @@ task.spawn(function()
     end
 end)
 
--- Loop 3: Gear Upgrade Transaction Pipeline
+-- Thread 2: Smart Gear Upgrade Engine
 task.spawn(function()
     while true do
-        task.wait(1.5)
+        task.wait(2.5) -- High safety latency gap
         if Config.AutoBuyGears and gearTransaction then
+            -- First attempts your specific choice
             pcall(function()
                 gearTransaction:InvokeServer(unpack({[1] = Config.TargetSprayName}))
             end)
+            
+            -- Cycles downward as an emergency backup if purchase condition fails
+            for _, sprayName in ipairs(SpraySequence) do
+                pcall(function()
+                    gearTransaction:InvokeServer(unpack({[1] = sprayName}))
+                end)
+            end
         end
     end
 end)
 
--- Loop 4: Coin Vacuum & Magnetic Collection Engine
+-- Thread 3: Force Physical Coin Touch Vacuum
 task.spawn(function()
     while true do
-        task.wait(0.1) -- High-speed pickup scan
+        task.wait(0.1) 
         if Config.AutoCollect then
             local char = localPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
             
             if root then
-                -- Scans game workspace for dropped coins, items, or reward boxes
                 for _, object in ipairs(Workspace:GetChildren()) do
                     if object:IsA("Part") or object:IsA("MeshPart") then
-                        -- Target models matching coin naming structures or holding coin properties
-                        if string.find(string.lower(object.Name), "coin") or string.find(string.lower(object.Name), "drop") then
+                        local nameLower = string.lower(object.Name)
+                        if string.find(nameLower, "coin") or string.find(nameLower, "drop") or string.find(nameLower, "heart") then
                             pcall(function()
-                                -- Snaps the coin coordinates directly onto your character model
+                                -- Snaps location directly to character coordinates
                                 object.CFrame = root.CFrame
+                                -- Simulates direct hit connection via cross-property contact logic
+                                firetouchinterest(root, object, 0)
+                                task.wait()
+                                firetouchinterest(root, object, 1)
                             end)
                         end
                     end
@@ -161,10 +167,10 @@ task.spawn(function()
     end
 end)
 
--- Loop 5: Weapon Handling & Progressive Sweeper Line
+-- Thread 4: Weapon Handling & Progressive Sweeper Line
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.15)
         if Config.AutoShoot and shootRemote then
             local character = localPlayer.Character
             local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -188,10 +194,10 @@ task.spawn(function()
     end
 end)
 
--- Loop 6: Total Carpet Fertilize Map Sweep
+-- Thread 5: Anti-Spam Protected Carpet Fertilizer Engine
 task.spawn(function()
     while true do
-        task.wait(0.6)
+        task.wait(1.8) -- Safe cooldown structure to completely bypass "Using Gears Too Fast" checks
         if Config.AutoFertilize and useFertilizerRemote then
             local mapFolder = Workspace:FindFirstChild("Map")
             local plotsFolder = mapFolder and mapFolder:FindFirstChild("Plots")
@@ -215,7 +221,7 @@ task.spawn(function()
     end
 end)
 
--- Loop 7: Auto Liquidation Crate Processing
+-- Thread 6: Auto Liquidation Crate Processing
 task.spawn(function()
     while true do
         task.wait(1.0)
